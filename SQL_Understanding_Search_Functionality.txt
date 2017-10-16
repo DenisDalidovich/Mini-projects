@@ -1,0 +1,431 @@
+Query 1
+---------
+
+SELECT '' AS percentage_of_users,
+       CAST(part1.searches_10_or_more AS FLOAT)*100/part2.total_users
+       AS "pct_of_users_with_searches >= 10",
+       CAST(part1.searches_between_5_and_10 AS FLOAT) *100/part2.total_users
+       AS "pct_of_users_with_searches between 5 and 10",
+       CAST(part1.searches_5_or_less AS FLOAT) *100/part2.total_users
+       AS "pct_of_users_with_searches <= 5",
+       part2.never_searched*100/part2.total_users
+       AS "pct_of_users_who_never_searched"
+
+FROM
+( SELECT 1 as num,
+COUNT(CASE WHEN subq.total_number >= 10 THEN 1 ELSE NULL END) AS searches_10_or_more,
+COUNT(CASE WHEN subq.total_number < 10 AND subq.total_number >5 THEN 1 ELSE NULL END) 
+        AS searches_between_5_and_10,
+COUNT(CASE WHEN subq.total_number <= 5  THEN 1 ELSE NULL END) 
+        AS searches_5_or_less
+FROM 
+  ( SELECT DISTINCT sub.user_id,
+       COUNT(sub.user_id) as total_number
+    FROM
+      ( SELECT events.user_id AS user_id,
+      EXTRACT(MONTH FROM events.occurred_at) AS month,
+      EXTRACT(DAY FROM events.occurred_at) AS day,
+      EXTRACT(HOUR FROM events.occurred_at) AS hour,
+      FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) AS number_of_5min_intervals,
+      COUNT(CASE WHEN events.event_name IN ('search_run', 'search_autocomplete') 
+      THEN 1 ELSE NULL END) 
+      FROM tutorial.yammer_events events 
+      JOIN tutorial.yammer_users users
+      ON events.user_id = users.user_id
+      AND events.event_type = 'engagement' AND users.state = 'active'
+      WHERE events.event_name IN ('search_run', 'search_autocomplete')
+      GROUP BY 1, 2, 3, 4, 5
+      ORDER BY 1 ) sub
+   GROUP BY 1
+   ORDER BY 2 DESC  ) subq
+   ) part1
+   
+   JOIN
+   
+   (SELECT aux1.num as num, 
+       aux1.did_searches AS did_searches,
+       aux2.total_users AS total_users,
+       aux2.total_users - aux1.did_searches AS never_searched
+FROM
+( SELECT 1 as num,
+ COUNT(DISTINCT events.user_id) AS did_searches
+ FROM tutorial.yammer_events events 
+ JOIN tutorial.yammer_users users
+ ON events.user_id = users.user_id
+ AND events.event_type = 'engagement' AND users.state = 'active'
+ WHERE events.event_name IN ('search_run', 'search_autocomplete') ) aux1
+ JOIN 
+ ( SELECT 1 as num,
+ COUNT(DISTINCT events.user_id) AS total_users
+ FROM tutorial.yammer_events events 
+ JOIN tutorial.yammer_users users
+ ON events.user_id = users.user_id
+ AND events.event_type = 'engagement' AND users.state = 'active' ) aux2
+ ON aux1.num = aux2.num 
+ ) part2
+ ON part1.num = part2.num
+
+
+
+
+
+Query 2
+---------
+
+ELECT (CASE WHEN sub.month = 5 THEN 'May'
+        WHEN sub.month = 6 THEN 'June' 
+        WHEN sub.month = 7 THEN 'July'
+        WHEN sub.month = 8 THEN 'August' END)
+        AS month,
+       COUNT(sub.user_id) AS searches_per_month
+    FROM
+      ( SELECT events.user_id,
+      EXTRACT(MONTH FROM events.occurred_at) AS month,
+      EXTRACT(DAY FROM events.occurred_at) AS day,
+      EXTRACT(HOUR FROM events.occurred_at) AS hour,
+      FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) AS number_of_5min_interval,
+      COUNT(CASE WHEN events.event_name IN ('search_run', 'search_autocomplete') 
+      THEN 1 ELSE NULL END) 
+      FROM tutorial.yammer_events events 
+      JOIN tutorial.yammer_users users
+      ON events.user_id = users.user_id
+      AND events.event_type = 'engagement' AND users.state = 'active'
+      WHERE events.event_name IN ('search_run', 'search_autocomplete')
+      GROUP BY 1, 2, 3, 4, 5
+      ORDER BY 1 ) sub
+   GROUP BY 1
+   ORDER BY 1 DESC
+
+
+
+
+
+
+Query 3
+---------
+
+SELECT '' AS "Clicks per search",
+       aux1.clicks_per_search_below_one AS "clicks/search <= 1.0",
+       aux1.clicks_per_search_between_one_and_two 
+       AS "1.0 <clicks/search <= 2.0",
+       aux1.clicks_per_search_between_two_and_three
+       AS "2.0 <clicks/search <= 3.0",
+       aux1.clicks_per_search_above_three
+       AS "clicks/search > 3.0",
+       aux2.users_searched - aux1.users_clicked AS "users who never clicked"
+
+
+FROM
+  ( SELECT 1 as num,
+  
+    COUNT(CASE WHEN 
+    CAST(part1.total_number_of_clicks AS FLOAT)/part1.total_number_of_searches <=1.0
+    THEN 1 ELSE NULL END) AS clicks_per_search_below_one,
+    
+    COUNT(CASE WHEN 
+    CAST(part1.total_number_of_clicks AS FLOAT)/part1.total_number_of_searches >1.0
+    AND 
+    CAST(part1.total_number_of_clicks AS FLOAT)/part1.total_number_of_searches <=2.0
+    THEN 1 ELSE NULL END) AS clicks_per_search_between_one_and_two,
+      
+    COUNT(CASE WHEN
+    CAST(part1.total_number_of_clicks AS FLOAT)/part1.total_number_of_searches >2.0
+    AND 
+    CAST(part1.total_number_of_clicks AS FLOAT)/part1.total_number_of_searches <=3.0
+    THEN 1 ELSE NULL END) AS clicks_per_search_between_two_and_three,
+    
+    COUNT(CASE WHEN 
+    CAST(part1.total_number_of_clicks AS FLOAT)/part1.total_number_of_searches >3.0
+    THEN 1 ELSE NULL END) AS clicks_per_search_above_three,
+    
+    COUNT(part1.user_id) AS users_clicked
+  
+    FROM (
+        SELECT sub1.user_id,
+               sub1.total_number_of_searches,
+               sub2.total_number_of_clicks
+        FROM         
+        ( SELECT DISTINCT sub.user_id AS user_id,
+          COUNT(sub.user_id) AS total_number_of_searches
+          FROM
+            ( SELECT events.user_id AS user_id,
+            EXTRACT(MONTH FROM events.occurred_at) AS month,
+            EXTRACT(DAY FROM events.occurred_at) AS day,
+            EXTRACT(HOUR FROM events.occurred_at) AS hour,
+            FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) 
+            AS number_of_5min_intervals,
+            COUNT(CASE WHEN events.event_name 
+            IN ('search_run', 'search_autocomplete') 
+            THEN 1 ELSE NULL END) 
+            FROM tutorial.yammer_events events 
+            JOIN tutorial.yammer_users users
+            ON events.user_id = users.user_id
+            AND events.event_type = 'engagement' AND users.state = 'active'
+            WHERE events.event_name IN ('search_run', 'search_autocomplete')
+            GROUP BY 1, 2, 3, 4, 5
+            ) sub
+            GROUP BY 1
+            ) sub1
+            
+            RIGHT JOIN
+      
+            ( SELECT DISTINCT user_id AS user_id,
+              COUNT(event_name) AS total_number_of_clicks
+              FROM tutorial.yammer_events 
+              WHERE event_name LIKE  'search_click_result_%'
+              GROUP BY 1 
+            ) sub2
+    
+            ON sub1.user_id = sub2.user_id
+            GROUP BY 1,2,3
+    ) part1
+
+) aux1
+
+JOIN 
+
+( SELECT 1 AS num,
+  COUNT(DISTINCT subq1.user_id) AS users_searched
+
+  FROM 
+    ( SELECT events.user_id,
+      EXTRACT(MONTH FROM events.occurred_at) AS month,
+      EXTRACT(DAY FROM events.occurred_at) AS day,
+      EXTRACT(HOUR FROM events.occurred_at) AS hour,
+      FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) AS number_of_5min_intervals,
+      COUNT(CASE WHEN events.event_name IN ('search_run', 'search_autocomplete') 
+      THEN 1 ELSE NULL END) 
+      FROM tutorial.yammer_events events 
+      JOIN tutorial.yammer_users users
+      ON events.user_id = users.user_id
+      AND events.event_type = 'engagement' AND users.state = 'active'
+      WHERE events.event_name IN ('search_run', 'search_autocomplete')
+      GROUP BY 1, 2, 3, 4, 5
+      ORDER BY 1 ) subq1 
+) aux2
+   
+ON aux1.num = aux2.num
+
+
+
+
+
+Query 4
+---------
+
+SELECT aux2.location AS location,
+       aux1.users_clicked AS "users who ever clicked",
+       aux2.users_searched - aux1.users_clicked AS "users who never clicked",
+       aux2.users_searched AS "users who searched",
+       CAST(aux1.users_clicked AS FLOAT) *100/aux2.users_searched 
+       AS "percentage of users who clicked "
+
+
+FROM
+  ( SELECT part1.location AS location,
+    COUNT(part1.user_id) AS users_clicked
+  
+    FROM (
+        SELECT sub1.user_id AS user_id,
+               sub1.location AS location, 
+               sub1.total_number_of_searches AS total_number_of_searches,
+               sub2.total_number_of_clicks AS total_number_of_clicks
+        FROM         
+        ( SELECT DISTINCT sub.user_id AS user_id,
+          sub.location AS location,
+          COUNT(sub.user_id) AS total_number_of_searches
+          FROM
+            ( SELECT events.location AS location, 
+            events.user_id AS user_id,
+            EXTRACT(MONTH FROM events.occurred_at) AS month,
+            EXTRACT(DAY FROM events.occurred_at) AS day,
+            EXTRACT(HOUR FROM events.occurred_at) AS hour,
+            FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) 
+            AS number_of_5min_intervals,
+            COUNT(CASE WHEN events.event_name 
+            IN ('search_run', 'search_autocomplete') 
+            THEN 1 ELSE NULL END) 
+            AS total_number_of_searches
+            FROM tutorial.yammer_events events 
+            JOIN tutorial.yammer_users users
+            ON events.user_id = users.user_id
+            AND events.event_type = 'engagement' AND users.state = 'active'
+            WHERE events.event_name IN ('search_run', 'search_autocomplete')
+            GROUP BY 1, 2, 3, 4, 5, 6
+            ) sub
+            GROUP BY 1, 2
+            ) sub1
+            
+            RIGHT JOIN
+      
+            ( SELECT DISTINCT user_id AS user_id,
+              location AS location,
+              COUNT(event_name) AS total_number_of_clicks
+              FROM tutorial.yammer_events 
+              WHERE event_name LIKE  'search_click_result_%'
+              GROUP BY 1, 2 
+            ) sub2
+    
+            ON sub1.user_id = sub2.user_id AND sub1.location = sub2.location
+            GROUP BY 1,2,3,4
+    ) part1
+GROUP BY 1
+) aux1
+
+RIGHT JOIN 
+
+( SELECT subq1.location AS location,
+  COUNT(DISTINCT subq1.user_id) AS users_searched
+
+  FROM 
+    ( SELECT events.location, 
+      events.user_id,
+      EXTRACT(MONTH FROM events.occurred_at) AS month,
+      EXTRACT(DAY FROM events.occurred_at) AS day,
+      EXTRACT(HOUR FROM events.occurred_at) AS hour,
+      FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) AS number_of_5min_intervals,
+      COUNT(CASE WHEN events.event_name IN ('search_run', 'search_autocomplete') 
+      THEN 1 ELSE NULL END) 
+      AS total_number_of_searches
+      FROM tutorial.yammer_events events 
+      JOIN tutorial.yammer_users users
+      ON events.user_id = users.user_id
+      AND events.event_type = 'engagement' AND users.state = 'active'
+      WHERE events.event_name IN ('search_run', 'search_autocomplete')
+      GROUP BY 1, 2, 3, 4, 5, 6
+      ORDER BY 1 ) subq1 
+GROUP BY 1
+) aux2
+   
+ON aux1.location = aux2.location
+ORDER BY 4 DESC
+LIMIT 23
+
+
+
+
+Query 5
+----------
+
+SELECT aux2.device AS device,
+       aux1.users_clicked AS "users who ever clicked",
+       aux2.users_searched - aux1.users_clicked AS "users who never clicked",
+       aux2.users_searched AS "users who searched",
+       CAST(aux1.users_clicked AS FLOAT) *100/aux2.users_searched 
+       AS "percentage of users who clicked "
+
+
+FROM
+  ( SELECT part1.device AS device,
+    COUNT(part1.user_id) AS users_clicked
+  
+    FROM (
+        SELECT sub1.user_id AS user_id,
+               sub1.device AS device, 
+               sub1.total_number_of_searches AS total_number_of_searches,
+               sub2.total_number_of_clicks AS total_number_of_clicks
+        FROM         
+        ( SELECT DISTINCT sub.user_id AS user_id,
+          sub.device AS device,
+          COUNT(sub.user_id) AS total_number_of_searches
+          FROM
+            ( SELECT events.device AS device, 
+            events.user_id AS user_id,
+            EXTRACT(MONTH FROM events.occurred_at) AS month,
+            EXTRACT(DAY FROM events.occurred_at) AS day,
+            EXTRACT(HOUR FROM events.occurred_at) AS hour,
+            FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) 
+            AS number_of_5min_intervals,
+            COUNT(CASE WHEN events.event_name 
+            IN ('search_run', 'search_autocomplete') 
+            THEN 1 ELSE NULL END) 
+            AS total_number_of_searches
+            FROM tutorial.yammer_events events 
+            JOIN tutorial.yammer_users users
+            ON events.user_id = users.user_id
+            AND events.event_type = 'engagement' AND users.state = 'active'
+            WHERE events.event_name IN ('search_run', 'search_autocomplete')
+            GROUP BY 1, 2, 3, 4, 5, 6
+            ) sub
+            GROUP BY 1, 2
+            ) sub1
+            
+            RIGHT JOIN
+      
+            ( SELECT DISTINCT user_id AS user_id,
+              device AS device,
+              COUNT(event_name) AS total_number_of_clicks
+              FROM tutorial.yammer_events 
+              WHERE event_name LIKE  'search_click_result_%'
+              GROUP BY 1, 2 
+            ) sub2
+    
+            ON sub1.user_id = sub2.user_id AND sub1.device = sub2.device
+            GROUP BY 1,2,3,4
+    ) part1
+GROUP BY 1
+) aux1
+
+RIGHT JOIN 
+
+( SELECT subq1.device AS device,
+  COUNT(DISTINCT subq1.user_id) AS users_searched
+
+  FROM 
+    ( SELECT events.device, 
+      events.user_id,
+      EXTRACT(MONTH FROM events.occurred_at) AS month,
+      EXTRACT(DAY FROM events.occurred_at) AS day,
+      EXTRACT(HOUR FROM events.occurred_at) AS hour,
+      FLOOR(EXTRACT(MINUTE FROM events.occurred_at)/5) AS number_of_5min_intervals,
+      COUNT(CASE WHEN events.event_name IN ('search_run', 'search_autocomplete') 
+      THEN 1 ELSE NULL END) 
+      AS total_number_of_searches
+      FROM tutorial.yammer_events events 
+      JOIN tutorial.yammer_users users
+      ON events.user_id = users.user_id
+      AND events.event_type = 'engagement' AND users.state = 'active'
+      WHERE events.event_name IN ('search_run', 'search_autocomplete')
+      GROUP BY 1, 2, 3, 4, 5, 6
+      ORDER BY 1 ) subq1 
+GROUP BY 1
+) aux2
+   
+ON aux1.device = aux2.device
+ORDER BY 5 DESC
+
+
+
+Query 6
+---------
+
+SELECT aux.device AS device, 
+CAST(all_searches_autocomplete_per_device AS FLOAT)*100/
+all_searches_per_device AS pct_autocomplete_per_device,
+aux.all_searches_per_device AS all_searches_per_device
+FROM (
+  
+  SELECT sub.device AS device,
+  COUNT(CASE WHEN sub.event_name ='search_autocomplete' THEN 1 ELSE NULL END) 
+  AS all_searches_autocomplete_per_device,
+  COUNT(CASE WHEN sub.event_name IN ('search_autocomplete','search_run')
+  THEN 1 ELSE NULL END) AS all_searches_per_device
+
+  FROM (
+   SELECT events.device AS device, 
+   events.user_id AS user_id,
+   events.event_name AS event_name
+   FROM tutorial.yammer_events events 
+   JOIN tutorial.yammer_users users
+   ON events.user_id = users.user_id
+   AND events.event_type = 'engagement' AND users.state = 'active'
+   WHERE events.event_name IN ('search_run', 'search_autocomplete')
+   GROUP BY 1, 2, 3 ) sub
+
+  GROUP BY 1
+  ORDER BY 3 DESC ) aux
+  
+GROUP BY 1,2,3
+ORDER BY 3 DESC
+
+
